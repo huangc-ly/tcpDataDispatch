@@ -17,6 +17,8 @@
 int g_LR = 0;
 int g_type = 0;
 
+FIFO *pFifo;
+
 //平显缓存
 HANDLE EVSShareMemory;
 char *evsShareMem;
@@ -32,9 +34,6 @@ char *glassSMRead;
 int *i_status;
 int *i_status2;
 int *i_status3;
-
-FIFO *pFifo;
-HANDLE mhEvent;
 
 typedef struct myPara
 {
@@ -131,12 +130,13 @@ void ShareBufferInit()
 }
 
 
-void DecodeImage()
+void DecodeImage(QByteArray *pData)
 {
-	QImage image = QImage::fromData(g_imageData, "jpg");
+	QImage image = QImage::fromData(*pData, "jpg");
 
 	// 处理解析的图片
-	if (g_type == SCENE_IMAGE){
+	if (g_type == SCENE_IMAGE)
+	{
 		i_status2 = (int*)(&(glassSMWrite[0]));
 		*i_status2 = 0;
 
@@ -163,7 +163,9 @@ void DecodeImage()
 			memcpy(&(glassSMWrite[sizeof(glassPtureInfo)]), from, size);
 		}
 		
-	}else if (g_type == HUD_IMAGE){
+	}
+	else if (g_type == HUD_IMAGE)
+	{
 		i_status = (int*)(&(evsShareMem[0]));
 		*i_status = 0;
 
@@ -176,7 +178,8 @@ void DecodeImage()
 		int size = buffer.size();
 		const char *from = buffer.data().data();
 		CaptureInfo cap;
-		if (*i_status == 0){
+		if (*i_status == 0)
+		{
 			cap.ready_status = 1;
 			cap.width = image.width();
 			cap.height = image.height();
@@ -213,7 +216,7 @@ void ParsePacket(char *gBuffer, int sz)
 	memcpy(buf + bound, gBuffer, sz);
 	bound += sz;
 	left = bound;
-	
+
 	while (left)
 	{
 		switch (state)
@@ -238,63 +241,75 @@ void ParsePacket(char *gBuffer, int sz)
 			break;
 
 		case 2:
-			if (buf[curPoint] == 0){
-				g_LR = 0;
+			if (buf[curPoint] == 0x7F){
 				state = 3;
-			}else if (buf[curPoint] == 1){
-				g_LR = 1;
-				state = 3;
-			}else {
-				printf("Unknown Type Case 2\n");
+			}else{
 				state = 0;
 			}
-			
 			left -= 1;
 			curPoint += 1;
 			break;
 
 		case 3:
-			if (buf[curPoint] == HUD_IMAGE){
-				g_type = HUD_IMAGE;
+			if (buf[curPoint] == 0){
+				g_LR = 0;
 				state = 4;
-			}else if (buf[curPoint] == SCENE_IMAGE){
-				g_type = SCENE_IMAGE;
+			}
+			else if (buf[curPoint] == 1){
+				g_LR = 1;
 				state = 4;
-			}else {
-				printf("Unknown Type Case 3\n");
+			}
+			else {
+				printf("\nUnknown Type Case 3\n");
 				state = 0;
 			}
-			
+
 			left -= 1;
 			curPoint += 1;
 			break;
 
-		case 4: // look for length
+		case 4:
+			if (buf[curPoint] == HUD_IMAGE){
+				g_type = HUD_IMAGE;
+				state = 5;
+			}
+			else if (buf[curPoint] == SCENE_IMAGE){
+				g_type = SCENE_IMAGE;
+				state = 5;
+			}
+			else {
+				printf("\nUnknown Type Case 4\n");
+				state = 0;
+			}
+
+			left -= 1;
+			curPoint += 1;
+			break;
+
+		case 5: // look for length
 			if (left >= 8) {
 				QByteArray tmp((char*)(buf + curPoint), 8);
 				QDataStream in(tmp);
 				in >> length;
-				state = 5;
+				state = 6;
 				left -= 8;
 				curPoint += 8;
 				//printf("image length: %d\n", length);
-			}else{
+			}
+			else{
 				left = 0;
 			}
 			break;
 
-		case 5:
+		case 6:
 			if (left >= length) {
 				QByteArray *pImage = new QByteArray();
 				pImage->resize(length);
-				//g_imageData.clear();
-				//g_imageData.resize(length);
-				//memcpy(g_imageData.data(), buf + curPoint, length);
 				memcpy(pImage->data(), buf + curPoint, length);
 				left -= length;
 				curPoint += length;
 
-				pFifo->FIFO_In(pImage, 1);
+				pFifo->FIFO_In(&pImage, 1);
 
 				memcpy(buf, buf + curPoint, left);
 				state = 0;
@@ -302,13 +317,14 @@ void ParsePacket(char *gBuffer, int sz)
 				bound = left;
 				//printf("Got a Image\n");
 				ShowFrameRate();
-			}else{// 剩余长度不够
+			}
+			else{// 剩余长度不够
 				//printf("left length is not enough\n");
 				left = 0;
 			}
 			break;
 		}
-		
+
 	}
 }
 
@@ -324,7 +340,9 @@ DWORD WINAPI ParseThread(const LPVOID param)
 		int result = recv(sock, gBuffer, 16 * 1024, 0);
 		if (result != -1){
 			ParsePacket(gBuffer, result);
-		}else if (result == -1){
+		}
+		else if (result == -1)
+		{
 			printf("\nNetwork: Client Disconnected\n");
 			return -1;
 		}
@@ -333,15 +351,16 @@ DWORD WINAPI ParseThread(const LPVOID param)
 
 DWORD WINAPI DecodeThread(const LPVOID param)
 {
-	QByteArray **ppImage = NULL;
+	QByteArray *pImage = NULL;
+
 	while (1)
 	{
-		int cnt = pFifo->FIFO_Out(*ppImage, 1);
+		int cnt = pFifo->FIFO_Out(&pImage, 1);
 		if (cnt != 0) {
-			DecodeImage();
+			DecodeImage(pImage);
+			delete pImage;
 		}
 	}
-
 
 	return 0;
 }
@@ -357,7 +376,8 @@ DWORD WINAPI ThreadMain(const LPVOID param)
 	{
 		printf("Waiting for connection...\n");
 		SOCKET connSocket = accept(listenSock, (SOCKADDR*)&clientAddr, &len);
-		if (connSocket == INVALID_SOCKET){
+		if (connSocket == INVALID_SOCKET)
+		{
 			printf("accept(serverSocket, (SOCKADDR*)&clientAddr, &len) execute failed!");
 			return -1;
 		}
@@ -377,7 +397,7 @@ int main(int argc, char *argv[])
 	pFifo = new FIFO();
 	pFifo->FIFO_Init(16, sizeof(QByteArray*));
 	ShareBufferInit();
-
+	
 	SOCKET listenSock = network_init();
 	if (listenSock == -1) {
 		return 1;

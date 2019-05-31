@@ -35,29 +35,11 @@ private:
 	void CopyIn(void *data, unsigned int len, unsigned int off);
 	void CopyOut(void *data, unsigned int len, unsigned int off);
 
-	void *m_buf[20];
+	char m_buf[160];
 	unsigned int m_in;
 	unsigned int m_out;
 	unsigned int  m_esize;
 	unsigned int  m_mask;
 };
-
-class DLL_FIFO_API Event
-{
-public:
-	Event();
-	bool createEvent(bool manualReset, bool initState);
-	bool openEvent();
-	bool resetEvent();
-	bool setEvent();
-	HANDLE getEvent()
-	{
-		return mhEvent;
-	}
-
-private:
-	HANDLE mhEvent;
-};
-
 
 #endif

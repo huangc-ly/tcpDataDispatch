@@ -97,10 +97,8 @@ unsigned int FIFO::FIFO_Out(void *data, unsigned int cnt)
 	return cnt;
 }
 
-Event::Event()
-{
-}
 
+#if 0
 bool Event::createEvent(bool manualReset, bool initState)
 {
 	mhEvent = CreateEventA(NULL, manualReset, initState, "Global\\myEvent");
@@ -186,3 +184,4 @@ extern "C"
 	}
 
 };
+#endif
